@@ -447,7 +447,7 @@ static bool promoteSingleBlockAlloca(AllocaInst *AI, const AllocaInfo &Info,
 
   for (User *U : AI->users())
     if (StoreInst *SI = dyn_cast<StoreInst>(U))
-      StoresByIndex.push_back(std::make_pair(LBI.getInstructionIndex(SI), SI));
+      StoresByIndex.push_back(std::make_pair(LBI.getInstructionIndex(SI), SI));  // TODO: isn't this making quadratic search in BB when AI->users() is sorted? need to do experiment. can be fixed by starting from the last Inst in LBI
 
   // Sort the stores by their index, making it efficient to do a lookup with a
   // binary search.
@@ -608,7 +608,7 @@ void PromoteMem2Reg::run() {
     // At this point, we're committed to promoting the alloca using IDF's, and
     // the standard SSA construction algorithm.  Determine which blocks need phi
     // nodes and see if we can optimize out some work by avoiding insertion of
-    // dead phi nodes.
+    // dead phi nodes.   // TODO: this comment duplicates the above one.
     IDF.setLiveInBlocks(LiveInBlocks);
     IDF.setDefiningBlocks(DefBlocks);
     SmallVector<BasicBlock *, 32> PHIBlocks;
@@ -631,7 +631,7 @@ void PromoteMem2Reg::run() {
 
   // Set the incoming values for the basic block to be null values for all of
   // the alloca's.  We do this in case there is a load of a value that has not
-  // been stored yet.  In this case, it will get this null value.
+  // been stored yet.  In this case, it will get this null value.   // TODO: shoudn't be this UNDEF value?
   //
   RenamePassData::ValVector Values(Allocas.size());
   for (unsigned i = 0, e = Allocas.size(); i != e; ++i)
@@ -698,7 +698,7 @@ void PromoteMem2Reg::run() {
           AST->deleteValue(PN);
         PN->replaceAllUsesWith(V);
         PN->eraseFromParent();
-        NewPhiNodes.erase(I++);
+        NewPhiNodes.erase(I++);    // TODO: won't this invalidate iterators? need to check DenseMap impl.
         EliminatedAPHI = true;
         continue;
       }
@@ -735,7 +735,7 @@ void PromoteMem2Reg::run() {
     // Ok, now we know that all of the PHI nodes are missing entries for some
     // basic blocks.  Start by sorting the incoming predecessors for efficient
     // access.
-    std::sort(Preds.begin(), Preds.end());
+    std::sort(Preds.begin(), Preds.end());    // TODO: won't this create non-deterministic behavior? Preds will be used to change PHI.
 
     // Now we loop through all BB's which have entries in SomePHI and remove
     // them from the Preds list.
@@ -747,7 +747,7 @@ void PromoteMem2Reg::run() {
              "PHI node has entry for a block which is not a predecessor!");
 
       // Remove the entry
-      Preds.erase(EntIt);
+      Preds.erase(EntIt);    // TODO: this is quadratic in |Preds|. but maybe it's so rare that we don't bother optimizing it.
     }
 
     // At this point, the blocks left in the preds list must have dummy
@@ -757,10 +757,10 @@ void PromoteMem2Reg::run() {
     unsigned NumBadPreds = SomePHI->getNumIncomingValues();
     BasicBlock::iterator BBI = BB->begin();
     while ((SomePHI = dyn_cast<PHINode>(BBI++)) &&
-           SomePHI->getNumIncomingValues() == NumBadPreds) {
+           SomePHI->getNumIncomingValues() == NumBadPreds) {    // TODO: shoudn't this condition be asserted rather than tested?
       Value *UndefVal = UndefValue::get(SomePHI->getType());
       for (unsigned pred = 0, e = Preds.size(); pred != e; ++pred)
-        SomePHI->addIncoming(UndefVal, Preds[pred]);
+        SomePHI->addIncoming(UndefVal, Preds[pred]);    // TODO: should look at addIncoming. Preds[pred] is non-deterministic
     }
   }
 
@@ -785,10 +785,10 @@ void PromoteMem2Reg::ComputeLiveInBlocks(
 
   // If any of the using blocks is also a definition block, check to see if the
   // definition occurs before or after the use.  If it happens before the use,
-  // the value isn't really live-in.
+  // the value isn't really live-in.    // TODO: this is only deleting things from worklist. instead of inserting all then deleting invalid, why not inserting valid in the first place?
   for (unsigned i = 0, e = LiveInBlockWorklist.size(); i != e; ++i) {
     BasicBlock *BB = LiveInBlockWorklist[i];
-    if (!DefBlocks.count(BB))
+    if (!DefBlocks.count(BB))    // TODO: shound't this be contains?
       continue;
 
     // Okay, this is a block that both uses and defines the value.  If the first
@@ -835,7 +835,7 @@ void PromoteMem2Reg::ComputeLiveInBlocks(
       BasicBlock *P = *PI;
 
       // The value is not live into a predecessor if it defines the value.
-      if (DefBlocks.count(P))
+      if (DefBlocks.count(P))    // TODO: shoudn't be contains?
         continue;
 
       // Otherwise it is, add to the worklist.
@@ -884,7 +884,7 @@ NextIteration:
   if (PHINode *APN = dyn_cast<PHINode>(BB->begin())) {
     // If we have PHI nodes to update, compute the number of edges from Pred to
     // BB.
-    if (PhiToAllocaMap.count(APN)) {
+    if (PhiToAllocaMap.count(APN)) {    // TODO: shoudn't this be contains?
       // We want to be able to distinguish between PHI nodes being inserted by
       // this invocation of mem2reg from those phi nodes that already existed in
       // the IR before mem2reg was run.  We determine that APN is being inserted
@@ -942,7 +942,7 @@ NextIteration:
       LI->replaceAllUsesWith(V);
       if (AST && LI->getType()->isPointerTy())
         AST->deleteValue(LI);
-      BB->getInstList().erase(LI);
+      BB->getInstList().erase(LI);    // TODO: won't this invalidate Inst iterator? need to check
     } else if (StoreInst *SI = dyn_cast<StoreInst>(I)) {
       // Delete this instruction and mark the name as the current holder of the
       // value
@@ -959,7 +959,7 @@ NextIteration:
       // Record debuginfo for the store before removing it.
       if (DbgDeclareInst *DDI = AllocaDbgDeclares[ai->second])
         ConvertDebugDeclareToDebugValue(DDI, SI, DIB);
-      BB->getInstList().erase(SI);
+      BB->getInstList().erase(SI);    // TODO: won't this invalidate Inst iterator? need to check
     }
   }
 
