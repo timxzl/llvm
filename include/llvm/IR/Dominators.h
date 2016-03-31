@@ -80,7 +80,7 @@ class DominatorTree : public DominatorTreeBase<BasicBlock> {
 public:
   typedef DominatorTreeBase<BasicBlock> Base;
 
-  DominatorTree() : DominatorTreeBase<BasicBlock>(false) {}
+  DominatorTree() : DominatorTreeBase<BasicBlock>(false) {}    // TODO: why not just say "Base(false)", like the other ctor below?
   explicit DominatorTree(Function &F) : DominatorTreeBase<BasicBlock>(false) {
     recalculate(F);
   }
