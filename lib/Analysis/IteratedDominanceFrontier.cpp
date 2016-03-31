@@ -77,12 +77,12 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
         if (!VisitedPQ.insert(SuccNode).second)
           continue;
 
-        BasicBlock *SuccBB = SuccNode->getBlock();
-        if (useLiveIn && !LiveInBlocks->count(SuccBB))
+        BasicBlock *SuccBB = SuccNode->getBlock();      // TODO: isn't this just Succ? assert(SuccBB == Succ)
+        if (useLiveIn && !LiveInBlocks->count(SuccBB))  // TODO: shoudn't be contains?
           continue;
 
         PHIBlocks.emplace_back(SuccBB);
-        if (!DefBlocks->count(SuccBB))
+        if (!DefBlocks->count(SuccBB))    // TODO: shoudn't be contains?
           PQ.push(std::make_pair(SuccNode, SuccLevel));
       }
 
