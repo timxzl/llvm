@@ -1403,6 +1403,7 @@ struct MDFieldPrinter {
   template <class IntTy, class Stringifier>
   void printDwarfEnum(StringRef Name, IntTy Value, Stringifier toString,
                       bool ShouldSkipZero = true);
+  void printEmissionKind(StringRef Name, DICompileUnit::DebugEmissionKind EK);
 };
 } // end namespace
 
@@ -1482,6 +1483,12 @@ void MDFieldPrinter::printDIFlags(StringRef Name, unsigned Flags) {
   if (Extra || SplitFlags.empty())
     Out << FlagsFS << Extra;
 }
+
+void MDFieldPrinter::printEmissionKind(StringRef Name,
+                                       DICompileUnit::DebugEmissionKind EK) {
+  Out << FS << Name << ": " << DICompileUnit::EmissionKindString(EK);
+}
+
 
 template <class IntTy, class Stringifier>
 void MDFieldPrinter::printDwarfEnum(StringRef Name, IntTy Value,
@@ -1640,8 +1647,7 @@ static void writeDICompileUnit(raw_ostream &Out, const DICompileUnit *N,
   Printer.printInt("runtimeVersion", N->getRuntimeVersion(),
                    /* ShouldSkipZero */ false);
   Printer.printString("splitDebugFilename", N->getSplitDebugFilename());
-  Printer.printInt("emissionKind", N->getEmissionKind(),
-                   /* ShouldSkipZero */ false);
+  Printer.printEmissionKind("emissionKind", N->getEmissionKind());
   Printer.printMetadata("enums", N->getRawEnumTypes());
   Printer.printMetadata("retainedTypes", N->getRawRetainedTypes());
   Printer.printMetadata("subprograms", N->getRawSubprograms());
@@ -2203,22 +2209,6 @@ void AssemblyWriter::writeOperandBundles(ImmutableCallSite CS) {
   Out << " ]";
 }
 
-/// Escape any backslashes in the source file (e.g. Windows paths)
-/// before emitting, so that it is parsed properly by the lexer on input.
-static void EscapeBackslashes(std::string Str,
-                              SmallVectorImpl<char> &Res) {
-  for (auto C : Str) {
-    switch (C) {
-    default:
-      break;
-    case '\\':
-      Res.push_back('\\');
-      break;
-    }
-    Res.push_back(C);
-  }
-}
-
 void AssemblyWriter::printModule(const Module *M) {
   Machine.initialize();
 
@@ -2232,9 +2222,9 @@ void AssemblyWriter::printModule(const Module *M) {
     Out << "; ModuleID = '" << M->getModuleIdentifier() << "'\n";
 
   if (!M->getSourceFileName().empty()) {
-    SmallString<128> EscapedName;
-    EscapeBackslashes(M->getSourceFileName(), EscapedName);
-    Out << "source_filename = \"" << EscapedName << "\"\n";
+    Out << "source_filename = \"";
+    PrintEscapedString(M->getSourceFileName(), Out);
+    Out << "\"\n";
   }
 
   const std::string &DL = M->getDataLayoutStr();
@@ -3038,6 +3028,8 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
     Out << ' ';
     if (AI->isUsedWithInAlloca())
       Out << "inalloca ";
+    if (AI->isSwiftError())
+      Out << "swifterror ";
     TypePrinter.print(AI->getAllocatedType(), Out);
 
     // Explicitly write the array size if the code is broken, if it's an array

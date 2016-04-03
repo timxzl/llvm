@@ -1048,7 +1048,9 @@ defm BUFFER_ATOMIC_XOR : MUBUF_Atomic <
 //def BUFFER_ATOMIC_FMIN : MUBUF_ <mubuf<0x3f>, "buffer_atomic_fmin", []>; // isn't on VI
 //def BUFFER_ATOMIC_FMAX : MUBUF_ <mubuf<0x40>, "buffer_atomic_fmax", []>; // isn't on VI
 //def BUFFER_ATOMIC_SWAP_X2 : MUBUF_X2 <mubuf<0x50, 0x60>, "buffer_atomic_swap_x2", []>;
-//def BUFFER_ATOMIC_CMPSWAP_X2 : MUBUF_X2 <mubuf<0x51, 0x61>, "buffer_atomic_cmpswap_x2", []>;
+defm BUFFER_ATOMIC_CMPSWAP_X2 : MUBUF_Atomic <
+  mubuf<0x51, 0x61>, "buffer_atomic_cmpswap_x2", VReg_128, v2i64, null_frag
+>;
 //def BUFFER_ATOMIC_ADD_X2 : MUBUF_X2 <mubuf<0x52, 0x62>, "buffer_atomic_add_x2", []>;
 //def BUFFER_ATOMIC_SUB_X2 : MUBUF_X2 <mubuf<0x53, 0x63>, "buffer_atomic_sub_x2", []>;
 //def BUFFER_ATOMIC_RSUB_X2 : MUBUF_X2 <mubuf<0x54>, "buffer_atomic_rsub_x2", []>; // isn't on CI & VI
@@ -1344,7 +1346,7 @@ defm V_FFBH_U32 : VOP1Inst <vop1<0x39, 0x2d>, "v_ffbh_u32", VOP_I32_I32>;
 defm V_FFBL_B32 : VOP1Inst <vop1<0x3a, 0x2e>, "v_ffbl_b32", VOP_I32_I32>;
 defm V_FFBH_I32 : VOP1Inst <vop1<0x3b, 0x2f>, "v_ffbh_i32", VOP_I32_I32>;
 defm V_FREXP_EXP_I32_F64 : VOP1Inst <vop1<0x3c,0x30>, "v_frexp_exp_i32_f64",
-  VOP_I32_F64
+  VOP_I32_F64, int_amdgcn_frexp_exp
 >;
 
 let SchedRW = [WriteDoubleAdd] in {
@@ -1359,7 +1361,7 @@ defm V_FRACT_F64 : VOP1Inst <vop1<0x3e, 0x32>, "v_fract_f64",
 
 
 defm V_FREXP_EXP_I32_F32 : VOP1Inst <vop1<0x3f, 0x33>, "v_frexp_exp_i32_f32",
-  VOP_I32_F32
+  VOP_I32_F32, int_amdgcn_frexp_exp
 >;
 defm V_FREXP_MANT_F32 : VOP1Inst <vop1<0x40, 0x34>, "v_frexp_mant_f32",
   VOP_F32_F32, int_amdgcn_frexp_mant
@@ -3185,6 +3187,37 @@ def : MUBUFScratchStorePat <BUFFER_STORE_SHORT_OFFEN, i32, truncstorei16_private
 def : MUBUFScratchStorePat <BUFFER_STORE_DWORD_OFFEN, i32, store_private>;
 def : MUBUFScratchStorePat <BUFFER_STORE_DWORDX2_OFFEN, v2i32, store_private>;
 def : MUBUFScratchStorePat <BUFFER_STORE_DWORDX4_OFFEN, v4i32, store_private>;
+
+
+multiclass MUBUFCmpSwapPat <Instruction inst_addr64, Instruction inst_offset,
+                            SDPatternOperator node, ValueType data_vt,
+                            ValueType node_vt> {
+
+let Predicates = [isSI] in {
+  def : Pat <
+    (node_vt (node (MUBUFAddr64Atomic v4i32:$srsrc, i64:$vaddr, i32:$soffset,
+	                           i16:$offset, i1:$slc), data_vt:$vdata_in)),
+    (EXTRACT_SUBREG
+      (inst_addr64  $vdata_in, $vaddr, $srsrc, $soffset, $offset, $slc), sub0)
+  >;
+
+}
+
+  def : Pat <
+    (node_vt (node (MUBUFOffsetAtomic v4i32:$srsrc, i32:$soffset, i16:$offset,
+                                   i1:$slc), data_vt:$vdata_in)),
+    (EXTRACT_SUBREG
+      (inst_offset $vdata_in, $srsrc, $soffset, $offset, $slc), sub0)
+  >;
+}
+
+defm : MUBUFCmpSwapPat <BUFFER_ATOMIC_CMPSWAP_RTN_ADDR64,
+                        BUFFER_ATOMIC_CMPSWAP_RTN_OFFSET,
+                        atomic_cmp_swap_global, v2i32, i32>;
+
+defm : MUBUFCmpSwapPat <BUFFER_ATOMIC_CMPSWAP_X2_RTN_ADDR64,
+                        BUFFER_ATOMIC_CMPSWAP_X2_RTN_OFFSET,
+                        atomic_cmp_swap_global, v2i64, i64>;
 
 //===----------------------------------------------------------------------===//
 // MTBUF Patterns

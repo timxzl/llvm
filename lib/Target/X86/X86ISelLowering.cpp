@@ -1877,7 +1877,6 @@ X86TargetLowering::X86TargetLowering(const X86TargetMachine &TM,
   setTargetDAGCombine(ISD::SINT_TO_FP);
   setTargetDAGCombine(ISD::UINT_TO_FP);
   setTargetDAGCombine(ISD::SETCC);
-  setTargetDAGCombine(ISD::BUILD_VECTOR);
   setTargetDAGCombine(ISD::MUL);
   setTargetDAGCombine(ISD::XOR);
   setTargetDAGCombine(ISD::MSCATTER);
@@ -2025,28 +2024,33 @@ X86TargetLowering::getOptimalMemOpType(uint64_t Size,
                                        bool MemcpyStrSrc,
                                        MachineFunction &MF) const {
   const Function *F = MF.getFunction();
-  if ((!IsMemset || ZeroMemset) &&
-      !F->hasFnAttribute(Attribute::NoImplicitFloat)) {
+  if (!F->hasFnAttribute(Attribute::NoImplicitFloat)) {
     if (Size >= 16 &&
         (!Subtarget.isUnalignedMem16Slow() ||
          ((DstAlign == 0 || DstAlign >= 16) &&
           (SrcAlign == 0 || SrcAlign >= 16)))) {
-      if (Size >= 32) {
-        // FIXME: Check if unaligned 32-byte accesses are slow.
-        if (Subtarget.hasInt256())
-          return MVT::v8i32;
-        if (Subtarget.hasFp256())
-          return MVT::v8f32;
+      // FIXME: Check if unaligned 32-byte accesses are slow.
+      if (Size >= 32 && Subtarget.hasAVX()) {
+        // Although this isn't a well-supported type for AVX1, we'll let
+        // legalization and shuffle lowering produce the optimal codegen. If we
+        // choose an optimal type with a vector element larger than a byte,
+        // getMemsetStores() may create an intermediate splat (using an integer
+        // multiply) before we splat as a vector.
+        return MVT::v32i8;
       }
       if (Subtarget.hasSSE2())
-        return MVT::v4i32;
+        return MVT::v16i8;
+      // TODO: Can SSE1 handle a byte vector?
       if (Subtarget.hasSSE1())
         return MVT::v4f32;
-    } else if (!MemcpyStrSrc && Size >= 8 &&
-               !Subtarget.is64Bit() &&
-               Subtarget.hasSSE2()) {
+    } else if ((!IsMemset || ZeroMemset) && !MemcpyStrSrc && Size >= 8 &&
+               !Subtarget.is64Bit() && Subtarget.hasSSE2()) {
       // Do not use f64 to lower memcpy if source is string constant. It's
       // better to use i32 to avoid the loads.
+      // Also, do not use f64 to lower memset unless this is a memset of zeros.
+      // The gymnastics of splatting a byte value into an XMM register and then
+      // only using 8-byte stores (because this is a CPU with slow unaligned
+      // 16-byte accesses) makes that a loser.
       return MVT::f64;
     }
   }
@@ -3829,6 +3833,7 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
 
   // Do not sibcall optimize vararg calls unless all arguments are passed via
   // registers.
+  LLVMContext &C = *DAG.getContext();
   if (isVarArg && !Outs.empty()) {
     // Optimizing for varargs on Win64 is unlikely to be safe without
     // additional testing.
@@ -3836,8 +3841,7 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
       return false;
 
     SmallVector<CCValAssign, 16> ArgLocs;
-    CCState CCInfo(CalleeCC, isVarArg, DAG.getMachineFunction(), ArgLocs,
-                   *DAG.getContext());
+    CCState CCInfo(CalleeCC, isVarArg, MF, ArgLocs, C);
 
     CCInfo.AnalyzeCallOperands(Outs, CC_X86);
     for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i)
@@ -3857,8 +3861,7 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
   }
   if (Unused) {
     SmallVector<CCValAssign, 16> RVLocs;
-    CCState CCInfo(CalleeCC, false, DAG.getMachineFunction(), RVLocs,
-                   *DAG.getContext());
+    CCState CCInfo(CalleeCC, false, MF, RVLocs, C);
     CCInfo.AnalyzeCallResult(Ins, RetCC_X86);
     for (unsigned i = 0, e = RVLocs.size(); i != e; ++i) {
       CCValAssign &VA = RVLocs[i];
@@ -3867,35 +3870,10 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
     }
   }
 
-  // If the calling conventions do not match, then we'd better make sure the
-  // results are returned in the same way as what the caller expects.
-  if (!CCMatch) {
-    SmallVector<CCValAssign, 16> RVLocs1;
-    CCState CCInfo1(CalleeCC, false, DAG.getMachineFunction(), RVLocs1,
-                    *DAG.getContext());
-    CCInfo1.AnalyzeCallResult(Ins, RetCC_X86);
-
-    SmallVector<CCValAssign, 16> RVLocs2;
-    CCState CCInfo2(CallerCC, false, DAG.getMachineFunction(), RVLocs2,
-                    *DAG.getContext());
-    CCInfo2.AnalyzeCallResult(Ins, RetCC_X86);
-
-    if (RVLocs1.size() != RVLocs2.size())
-      return false;
-    for (unsigned i = 0, e = RVLocs1.size(); i != e; ++i) {
-      if (RVLocs1[i].isRegLoc() != RVLocs2[i].isRegLoc())
-        return false;
-      if (RVLocs1[i].getLocInfo() != RVLocs2[i].getLocInfo())
-        return false;
-      if (RVLocs1[i].isRegLoc()) {
-        if (RVLocs1[i].getLocReg() != RVLocs2[i].getLocReg())
-          return false;
-      } else {
-        if (RVLocs1[i].getLocMemOffset() != RVLocs2[i].getLocMemOffset())
-          return false;
-      }
-    }
-  }
+  // Check that the call results are passed in the same way.
+  if (!CCState::resultsCompatible(CalleeCC, CallerCC, MF, C, Ins,
+                                  RetCC_X86, RetCC_X86))
+    return false;
 
   unsigned StackArgsSize = 0;
 
@@ -3905,8 +3883,7 @@ bool X86TargetLowering::IsEligibleForTailCallOptimization(
     // Check if stack adjustment is needed. For now, do not do this if any
     // argument is passed on the stack.
     SmallVector<CCValAssign, 16> ArgLocs;
-    CCState CCInfo(CalleeCC, isVarArg, DAG.getMachineFunction(), ArgLocs,
-                   *DAG.getContext());
+    CCState CCInfo(CalleeCC, isVarArg, MF, ArgLocs, C);
 
     // Allocate shadow area for Win64
     if (IsCalleeWin64)
@@ -5763,9 +5740,9 @@ static SDValue EltsFromConsecutiveLoads(EVT VT, ArrayRef<SDValue> Elts,
     if (LoadMask[i]) {
       SDValue Elt = peekThroughBitcasts(Elts[i]);
       LoadSDNode *LD = cast<LoadSDNode>(Elt);
-      if (!DAG.isConsecutiveLoad(LD, LDBase,
-                                 Elt.getValueType().getStoreSizeInBits() / 8,
-                                 i - FirstLoadedElt)) {
+      if (!DAG.areNonVolatileConsecutiveLoads(
+              LD, LDBase, Elt.getValueType().getStoreSizeInBits() / 8,
+              i - FirstLoadedElt)) {
         IsConsecutiveLoad = false;
         IsConsecutiveLoadWithZeros = false;
         break;
@@ -5776,10 +5753,10 @@ static SDValue EltsFromConsecutiveLoads(EVT VT, ArrayRef<SDValue> Elts,
   }
 
   auto CreateLoad = [&DAG, &DL](EVT VT, LoadSDNode *LDBase) {
-    SDValue NewLd = DAG.getLoad(VT, DL, LDBase->getChain(),
-                                LDBase->getBasePtr(), LDBase->getPointerInfo(),
-                                LDBase->isVolatile(), LDBase->isNonTemporal(),
-                                LDBase->isInvariant(), LDBase->getAlignment());
+    SDValue NewLd = DAG.getLoad(
+        VT, DL, LDBase->getChain(), LDBase->getBasePtr(),
+        LDBase->getPointerInfo(), false /*LDBase->isVolatile()*/,
+        LDBase->isNonTemporal(), LDBase->isInvariant(), LDBase->getAlignment());
 
     if (LDBase->hasAnyUseOfValue(1)) {
       SDValue NewChain =
@@ -6376,8 +6353,8 @@ static SDValue ExpandHorizontalBinOp(const SDValue &V0, const SDValue &V1,
                                      SDLoc DL, SelectionDAG &DAG,
                                      unsigned X86Opcode, bool Mode,
                                      bool isUndefLO, bool isUndefHI) {
-  EVT VT = V0.getValueType();
-  assert(VT.is256BitVector() && VT == V1.getValueType() &&
+  MVT VT = V0.getSimpleValueType();
+  assert(VT.is256BitVector() && VT == V1.getSimpleValueType() &&
          "Invalid nodes in input!");
 
   unsigned NumElts = VT.getVectorNumElements();
@@ -6385,7 +6362,7 @@ static SDValue ExpandHorizontalBinOp(const SDValue &V0, const SDValue &V1,
   SDValue V0_HI = extract128BitVector(V0, NumElts/2, DAG, DL);
   SDValue V1_LO = extract128BitVector(V1, 0, DAG, DL);
   SDValue V1_HI = extract128BitVector(V1, NumElts/2, DAG, DL);
-  EVT NewVT = V0_LO.getValueType();
+  MVT NewVT = V0_LO.getSimpleValueType();
 
   SDValue LO = DAG.getUNDEF(NewVT);
   SDValue HI = DAG.getUNDEF(NewVT);
