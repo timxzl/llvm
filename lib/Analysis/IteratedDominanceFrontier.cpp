@@ -66,7 +66,7 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
         DomTreeNode *SuccNode = DT.getNode(Succ);
 
         // Quickly skip all CFG edges that are also dominator tree edges instead
-        // of catching them below.
+        // of catching them below.  // TODO: this should be just an optimization. if SuccNode->getIDom()==Node, then it must be a descendent of Root, so its DomLevel > RootLevel
         if (SuccNode->getIDom() == Node)
           continue;
 
@@ -87,7 +87,7 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
       }
 
       for (auto DomChild : *Node) {
-        if (VisitedWorklist.insert(DomChild).second)
+        if (VisitedWorklist.insert(DomChild).second)  // TODO: why is this needed? DomTree should be acyclic
           Worklist.push_back(DomChild);
       }
     }
