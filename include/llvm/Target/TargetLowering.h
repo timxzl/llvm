@@ -637,6 +637,14 @@ public:
       getTruncStoreAction(ValVT.getSimpleVT(), MemVT.getSimpleVT()) == Legal;
   }
 
+  /// Return true if the specified store with truncation has solution on this
+  /// target.
+  bool isTruncStoreLegalOrCustom(EVT ValVT, EVT MemVT) const {
+    return isTypeLegal(ValVT) && MemVT.isSimple() &&
+      (getTruncStoreAction(ValVT.getSimpleVT(), MemVT.getSimpleVT()) == Legal ||
+       getTruncStoreAction(ValVT.getSimpleVT(), MemVT.getSimpleVT()) == Custom);
+  }
+
   /// Return how the indexed load should be treated: either it is legal, needs
   /// to be promoted to a larger size, needs to be expanded to some other code
   /// sequence, or the target has a custom expander for it.
@@ -2267,6 +2275,12 @@ public:
     return false;
   }
 
+  /// Return true if the target supports swifterror attribute. It optimizes
+  /// loads and stores to reading and writing a specific register.
+  virtual bool supportSwiftError() const {
+    return false;
+  }
+
   /// Return true if the target supports that a subset of CSRs for the given
   /// machine function is handled explicitly via copies.
   virtual bool supportSplitCSR(MachineFunction *MF) const {
@@ -2369,6 +2383,7 @@ public:
     SmallVector<ISD::OutputArg, 32> Outs;
     SmallVector<SDValue, 32> OutVals;
     SmallVector<ISD::InputArg, 32> Ins;
+    SmallVector<SDValue, 4> InVals;
 
     CallLoweringInfo(SelectionDAG &DAG)
         : RetTy(nullptr), RetSExt(false), RetZExt(false), IsVarArg(false),

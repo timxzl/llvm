@@ -430,9 +430,9 @@ char *LLVMGetDiagInfoDescription(LLVMDiagnosticInfoRef DI);
  */
 LLVMDiagnosticSeverity LLVMGetDiagInfoSeverity(LLVMDiagnosticInfoRef DI);
 
-unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char* Name,
+unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char *Name,
                                   unsigned SLen);
-unsigned LLVMGetMDKindID(const char* Name, unsigned SLen);
+unsigned LLVMGetMDKindID(const char *Name, unsigned SLen);
 
 /**
  * @}
@@ -479,6 +479,26 @@ LLVMModuleRef LLVMCloneModule(LLVMModuleRef M);
  * leaked.
  */
 void LLVMDisposeModule(LLVMModuleRef M);
+
+/**
+ * Obtain the identifier of a module.
+ *
+ * @param M Module to obtain identifier of
+ * @param Len Out parameter which holds the length of the returned string.
+ * @return The identifier of M.
+ * @see Module::getModuleIdentifier()
+ */
+const char *LLVMGetModuleIdentifier(LLVMModuleRef M, size_t *Len);
+
+/**
+ * Set the identifier of a module to a string Ident with length Len.
+ *
+ * @param M The module to set identifier
+ * @param Ident The string to set M's identifier to
+ * @param Len Length of Ident
+ * @see Module::setModuleIdentifier()
+ */
+void LLVMSetModuleIdentifier(LLVMModuleRef M, const char *Ident, size_t Len);
 
 /**
  * Obtain the data layout for a module.
@@ -1527,7 +1547,7 @@ LLVMBool LLVMIsConstantString(LLVMValueRef c);
  *
  * @see ConstantDataSequential::getAsString()
  */
-const char *LLVMGetAsString(LLVMValueRef c, size_t* out);
+const char *LLVMGetAsString(LLVMValueRef c, size_t *Length);
 
 /**
  * Create an anonymous ConstantStruct with the specified values.
@@ -2057,10 +2077,10 @@ LLVMValueRef LLVMMDNode(LLVMValueRef *Vals, unsigned Count);
  * Obtain the underlying string from a MDString value.
  *
  * @param V Instance to obtain string from.
- * @param Len Memory address which will hold length of returned string.
+ * @param Length Memory address which will hold length of returned string.
  * @return String data in MDString.
  */
-const char  *LLVMGetMDString(LLVMValueRef V, unsigned* Len);
+const char *LLVMGetMDString(LLVMValueRef V, unsigned *Length);
 
 /**
  * Obtain the number of operands from an MDNode value.

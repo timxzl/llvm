@@ -100,12 +100,12 @@ void LLVMContextDispose(LLVMContextRef C) {
   delete unwrap(C);
 }
 
-unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char* Name,
+unsigned LLVMGetMDKindIDInContext(LLVMContextRef C, const char *Name,
                                   unsigned SLen) {
   return unwrap(C)->getMDKindID(StringRef(Name, SLen));
 }
 
-unsigned LLVMGetMDKindID(const char* Name, unsigned SLen) {
+unsigned LLVMGetMDKindID(const char *Name, unsigned SLen) {
   return LLVMGetMDKindIDInContext(LLVMGetGlobalContext(), Name, SLen);
 }
 
@@ -156,6 +156,17 @@ LLVMModuleRef LLVMModuleCreateWithNameInContext(const char *ModuleID,
 void LLVMDisposeModule(LLVMModuleRef M) {
   delete unwrap(M);
 }
+
+const char *LLVMGetModuleIdentifier(LLVMModuleRef M, size_t *Len) {
+  auto &Str = unwrap(M)->getModuleIdentifier();
+  *Len = Str.length();
+  return Str.c_str();
+}
+
+void LLVMSetModuleIdentifier(LLVMModuleRef M, const char *Ident, size_t Len) {
+  unwrap(M)->setModuleIdentifier(StringRef(Ident, Len));
+}
+
 
 /*--.. Data layout .........................................................--*/
 const char *LLVMGetDataLayoutStr(LLVMModuleRef M) {
@@ -769,13 +780,13 @@ LLVMValueRef LLVMMDNode(LLVMValueRef *Vals, unsigned Count) {
   return LLVMMDNodeInContext(LLVMGetGlobalContext(), Vals, Count);
 }
 
-const char *LLVMGetMDString(LLVMValueRef V, unsigned* Len) {
+const char *LLVMGetMDString(LLVMValueRef V, unsigned *Length) {
   if (const auto *MD = dyn_cast<MetadataAsValue>(unwrap(V)))
     if (const MDString *S = dyn_cast<MDString>(MD->getMetadata())) {
-      *Len = S->getString().size();
+      *Length = S->getString().size();
       return S->getString().data();
     }
-  *Len = 0;
+  *Length = 0;
   return nullptr;
 }
 
@@ -925,10 +936,10 @@ LLVMBool LLVMIsConstantString(LLVMValueRef C) {
   return unwrap<ConstantDataSequential>(C)->isString();
 }
 
-const char *LLVMGetAsString(LLVMValueRef C, size_t* Length) {
-  StringRef str = unwrap<ConstantDataSequential>(C)->getAsString();
-  *Length = str.size();
-  return str.data();
+const char *LLVMGetAsString(LLVMValueRef C, size_t *Length) {
+  StringRef Str = unwrap<ConstantDataSequential>(C)->getAsString();
+  *Length = Str.size();
+  return Str.data();
 }
 
 LLVMValueRef LLVMConstArray(LLVMTypeRef ElementTy,
