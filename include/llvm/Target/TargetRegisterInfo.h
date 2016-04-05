@@ -161,8 +161,21 @@ public:
   }
 
   /// Returns a bit vector of subclasses, including this one.
-  /// The vector is indexed by class IDs, see hasSubClassEq() above for how to
-  /// use it.
+  /// The vector is indexed by class IDs.
+  ///
+  /// To use it, consider the returned array as a chunk of memory that
+  /// contains an array of bits of size NumRegClasses. Each 32-bit chunk
+  /// contains a bitset of the ID of the subclasses in big-endian style.
+
+  /// I.e., the representation of the memory from left to right at the
+  /// bit level looks like:
+  /// [31 30 ... 1 0] [ 63 62 ... 33 32] ...
+  ///                     [ XXX NumRegClasses NumRegClasses - 1 ... ]
+  /// Where the number represents the class ID and XXX bits that
+  /// should be ignored.
+  ///
+  /// See the implementation of hasSubClassEq for an example of how it
+  /// can be used.
   const uint32_t *getSubClassMask() const {
     return SubClassMask;
   }
@@ -459,6 +472,10 @@ public:
   virtual const uint32_t *getNoPreservedMask() const {
     llvm_unreachable("target does not provide no preserved mask");
   }
+
+  /// Return true if all bits that are set in mask \p mask0 are also set in
+  /// \p mask1.
+  bool regmaskSubsetEqual(const uint32_t *mask0, const uint32_t *mask1) const;
 
   /// Return all the call-preserved register masks defined for this target.
   virtual ArrayRef<const uint32_t *> getRegMasks() const = 0;
