@@ -42,6 +42,9 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
   SmallVector<DomTreeNode *, 32> Worklist;
   SmallPtrSet<DomTreeNode *, 32> VisitedPQ;
   SmallPtrSet<DomTreeNode *, 32> VisitedWorklist;
+#ifdef DEBUG
+  SmallPtrSet<DomTreeNode *, 32> VisitedWorklistOld;
+#endif
 
   while (!PQ.empty()) {
     DomTreeNodePair RootPair = PQ.top();
@@ -55,11 +58,12 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
     // definition set.
 
     Worklist.clear();
-    Worklist.push_back(Root);
     VisitedWorklist.insert(Root);
+#ifdef DEBUG
+    VisitedWorklistOld.insert(Root);
+#endif
 
-    while (!Worklist.empty()) {
-      DomTreeNode *Node = Worklist.pop_back_val();
+    for (DomTreeNode * Node = Root; ; ) {
       BasicBlock *BB = Node->getBlock();
 
       for (auto Succ : successors(BB)) {
@@ -67,8 +71,10 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
 
         // Quickly skip all CFG edges that are also dominator tree edges instead
         // of catching them below.  // TODO: this should be just an optimization. if SuccNode->getIDom()==Node, then it must be a descendent of Root, so its DomLevel > RootLevel
-        if (SuccNode->getIDom() == Node)
+        if (SuccNode->getIDom() == Node) {
+	  assert(DomLevels.lookup(SuccNode) > RootLevel && "SuccLevel <= RootLevel!"); // could be wrong if SuccNode == Node? or couldn't? can BB be its own IDom?
           continue;
+	}
 
         unsigned SuccLevel = DomLevels.lookup(SuccNode);
         if (SuccLevel > RootLevel)
@@ -77,18 +83,33 @@ void IDFCalculator::calculate(SmallVectorImpl<BasicBlock *> &PHIBlocks) {
         if (!VisitedPQ.insert(SuccNode).second)
           continue;
 
+#ifdef DEBUG
         BasicBlock *SuccBB = SuccNode->getBlock();      // TODO: isn't this just Succ? assert(SuccBB == Succ)
-        if (useLiveIn && !LiveInBlocks->count(SuccBB))  // TODO: shoudn't be contains?
+	assert(SuccBB == Succ && "SuccBB != Succ!");
+#endif
+
+        if (useLiveIn && !LiveInBlocks->count(Succ))
           continue;
 
-        PHIBlocks.emplace_back(SuccBB);
-        if (!DefBlocks->count(SuccBB))    // TODO: shoudn't be contains?
+        PHIBlocks.emplace_back(Succ);
+        if (!DefBlocks->count(Succ))
           PQ.push(std::make_pair(SuccNode, SuccLevel));
       }
 
       for (auto DomChild : *Node) {
-        if (VisitedWorklist.insert(DomChild).second)  // TODO: why is this needed? DomTree should be acyclic
-          Worklist.push_back(DomChild);
+	if (VisitedWorklist.count(DomChild)) {
+	  continue;
+	}
+#ifdef DEBUG
+	assert(VisitedWorklistOld.insert(DomChild).second && "some node has been put into worklist twice");
+#endif
+        Worklist.push_back(DomChild);
+      }
+
+      if (Worklist.empty()) {
+        break;
+      } else {
+        Node = Worklist.pop_back_val();
       }
     }
   }
